@@ -6,17 +6,25 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/favicon"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/wI2L/jettison"
+	"os"
+	"sync"
+	"time"
 )
 
 type Config struct {
-	FiberConfig      fiber.Config
-	CompressionLevel CompressionLevel
+	Name             string           `json:"name"`
+	Version          string           `json:"version"`
+	FiberConfig      fiber.Config     `json:"-"`
+	CompressionLevel CompressionLevel `json:"-"`
 }
 
 var configDefault = Config{
+	CompressionLevel: LevelDisabled,
+	Version:          "unknown",
 	FiberConfig: fiber.Config{
 		AppName:     "",
 		JSONEncoder: CustomJSONEncoder,
+		ProxyHeader: "X-Forwarded-For",
 		ErrorHandler: func(ctx *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(CustomHTTPError); ok {
@@ -36,7 +44,6 @@ var configDefault = Config{
 			return nil
 		},
 	},
-	CompressionLevel: LevelDisabled,
 }
 
 // get config default values
@@ -46,16 +53,32 @@ func getConfig(config ...Config) Config {
 		return configDefault
 	}
 
+	disableStartupMessage := false
+	goEnv, ok := os.LookupEnv("GO_ENV")
+	if ok && goEnv == "production" {
+		disableStartupMessage = true
+	}
+
 	// Override default config
 	cfg := config[0]
+
+	cfg.FiberConfig.DisableStartupMessage = disableStartupMessage
 
 	// Set default values
 	if cfg.CompressionLevel < LevelDisabled || cfg.CompressionLevel > LevelBestCompression {
 		cfg.CompressionLevel = configDefault.CompressionLevel
 	}
 
+	if cfg.Version == "" {
+		cfg.Version = configDefault.Version
+	}
+
 	if cfg.FiberConfig.AppName == "" {
-		cfg.FiberConfig.AppName = configDefault.FiberConfig.AppName
+		if cfg.Name != "" {
+			cfg.FiberConfig.AppName = cfg.Name
+		} else {
+			cfg.FiberConfig.AppName = configDefault.FiberConfig.AppName
+		}
 	}
 
 	if cfg.FiberConfig.JSONEncoder == nil {
@@ -66,25 +89,69 @@ func getConfig(config ...Config) Config {
 		cfg.FiberConfig.ErrorHandler = configDefault.FiberConfig.ErrorHandler
 	}
 
+	if cfg.FiberConfig.ProxyHeader == "" {
+		cfg.FiberConfig.ProxyHeader = configDefault.FiberConfig.ProxyHeader
+	}
+
 	return cfg
 }
 
-func NewFiberApp(appOptions Config) *fiber.App {
-	config := getConfig(appOptions)
-	f := fiber.New(config.FiberConfig)
+type App struct {
+	Name     string    `json:"name"`
+	Version  string    `json:"version"`
+	Started  time.Time `json:"started"`
+	Uptime   float64   `json:"uptime"`
+	fiberApp *fiber.App
+}
 
-	if config.CompressionLevel != LevelDisabled {
-		f.Use(compress.New(compress.Config{
-			Level: config.CompressionLevel.GetFiberCompressionLevel(),
-		}))
+var appLock = &sync.Mutex{}
+var appInstance *App
+
+func NewFiberApp(appOptions Config) *fiber.App {
+	if appInstance == nil {
+		appLock.Lock()
+		defer appLock.Unlock()
+		if appInstance == nil {
+			config := getConfig(appOptions)
+			f := fiber.New(config.FiberConfig)
+
+			if config.CompressionLevel != LevelDisabled {
+				f.Use(compress.New(compress.Config{
+					Level: config.CompressionLevel.GetFiberCompressionLevel(),
+				}))
+			}
+
+			app := App{
+				Name:     config.Name,
+				Version:  config.Version,
+				Started:  time.Now(),
+				fiberApp: f,
+			}
+
+			// favicon
+			f.Use(favicon.New())
+			// recover
+			f.Use(recover.New(recover.Config{EnableStackTrace: true}))
+
+			f.Get("/", func(c *fiber.Ctx) error {
+				app.Uptime = GetUptime()
+				return c.JSON(app)
+			})
+
+			appInstance = &app
+		}
 	}
 
-	// favicon
-	f.Use(favicon.New())
+	return appInstance.fiberApp
+}
 
-	f.Use(recover.New(recover.Config{EnableStackTrace: true}))
+func GetUptime() float64 {
+	now := time.Now()
+	return now.Sub(appInstance.Started).Seconds()
+}
 
-	return f
+func GetFiber() *fiber.App {
+	return appInstance.fiberApp
 }
 
 func CustomJSONEncoder(v any) ([]byte, error) {
