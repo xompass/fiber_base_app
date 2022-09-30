@@ -1,4 +1,4 @@
-module dev.azure.com/xompass/xompass-cloud/_git/fiber_base_app.git
+module github.com/xompass/fiber_base_app
 
 go 1.19
 

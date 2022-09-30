@@ -6,7 +6,7 @@ Good Defaults for a fiber rest API
 
 ```bash
 go get github.com/gofiber/fiber/v2
-go get dev.azure.com/xompass/xompass-cloud/_git/fiber_base_app.git
+go get github.com/xompass/fiber_base_app
 ```
 
 ## Usage
@@ -15,7 +15,7 @@ go get dev.azure.com/xompass/xompass-cloud/_git/fiber_base_app.git
 package main
 
 import (
-    "dev.azure.com/xompass/xompass-cloud/_git/fiber_base_app.git"
+    "github.com/xompass/fiber_base_app"
     "fmt"
     "github.com/gofiber/fiber/v2"
     "log"
