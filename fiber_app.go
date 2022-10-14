@@ -1,14 +1,14 @@
 package fiber_base_app
 
 import (
+	"sync"
+	"time"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/compress"
 	"github.com/gofiber/fiber/v2/middleware/favicon"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/wI2L/jettison"
-	"os"
-	"sync"
-	"time"
 )
 
 type Config struct {
@@ -22,9 +22,10 @@ var configDefault = Config{
 	CompressionLevel: LevelDisabled,
 	Version:          "unknown",
 	FiberConfig: fiber.Config{
-		AppName:     "",
-		JSONEncoder: CustomJSONEncoder,
-		ProxyHeader: "X-Forwarded-For",
+		AppName:               "",
+		JSONEncoder:           CustomJSONEncoder,
+		ProxyHeader:           "X-Forwarded-For",
+		DisableStartupMessage: true,
 		ErrorHandler: func(ctx *fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(CustomHTTPError); ok {
@@ -53,16 +54,8 @@ func getConfig(config ...Config) Config {
 		return configDefault
 	}
 
-	disableStartupMessage := false
-	goEnv, ok := os.LookupEnv("GO_ENV")
-	if ok && goEnv == "production" {
-		disableStartupMessage = true
-	}
-
 	// Override default config
 	cfg := config[0]
-
-	cfg.FiberConfig.DisableStartupMessage = disableStartupMessage
 
 	// Set default values
 	if cfg.CompressionLevel < LevelDisabled || cfg.CompressionLevel > LevelBestCompression {
